@@ -39,17 +39,19 @@ def _percentile_ms(samples_ms: List[float], percentile: float) -> float:
 
 
 async def _run_puts(
-    client: httpx.AsyncClient, *, num_requests: int, concurrency: int
+    client: httpx.AsyncClient, *, num_requests: int, concurrency: int, replicate: bool
 ) -> Tuple[List[float], int]:
     lat_ms: List[float] = []
     errors = 0
+
+    params = None if replicate else {"replicate": "false"}
 
     async def _one(i: int) -> None:
         nonlocal errors
         key = f"bench-{i}"
         t0 = time.perf_counter()
         try:
-            resp = await client.put(f"/keys/{key}", json={"value": i})
+            resp = await client.put(f"/keys/{key}", params=params, json={"value": i})
             resp.raise_for_status()
         except Exception:
             errors += 1
@@ -94,6 +96,7 @@ async def run_benchmark(
     *,
     base_url: str = "http://127.0.0.1:8001",
     timeout_s: float = 10.0,
+    replicate: bool = False,
 ) -> None:
     """Stress test PUT and GET against a single node and print a summary table."""
 
@@ -107,7 +110,10 @@ async def run_benchmark(
         # PUT benchmark
         t0 = time.perf_counter()
         put_lat_ms, put_errors = await _run_puts(
-            client, num_requests=num_requests, concurrency=concurrency
+            client,
+            num_requests=num_requests,
+            concurrency=concurrency,
+            replicate=replicate,
         )
         put_total_s = time.perf_counter() - t0
         put_rps = num_requests / put_total_s if put_total_s > 0 else float("inf")
