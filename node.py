@@ -9,12 +9,13 @@ from fastapi import FastAPI, HTTPException, Query, status
 from pydantic import BaseModel
 
 from cluster import ClusterConfig
+from persistence import PersistenceManager
 from replicator import Replicator
 from store import InMemoryKVStore
 
 
 app = FastAPI(title="Distributed KV Store Node", version="0.1.0")
-store = InMemoryKVStore[str, Any]()
+store: Optional[InMemoryKVStore[str, Any]] = None
 replicator: Optional[Replicator] = None
 node_id: Optional[str] = None
 
@@ -54,15 +55,23 @@ def _load_cluster_config(path: str) -> ClusterConfig:
 
 @app.on_event("startup")
 async def _startup() -> None:
-    global replicator, node_id
+    global replicator, node_id, store
 
     node_id = os.getenv("NODE_ID")
     cluster_path = os.getenv("CLUSTER_CONFIG_PATH")
+    data_file = os.getenv("DATA_FILE")
 
     if not node_id:
         raise RuntimeError("NODE_ID environment variable must be set")
     if not cluster_path:
         raise RuntimeError("CLUSTER_CONFIG_PATH environment variable must be set")
+
+    if data_file:
+        pm = PersistenceManager(data_file)
+        store = InMemoryKVStore[str, Any](persistence_manager=pm)
+        store.load_from_disk()
+    else:
+        store = InMemoryKVStore[str, Any]()
 
     cluster = _load_cluster_config(cluster_path)
     replicator = Replicator(cluster=cluster, node_id=node_id)
@@ -79,6 +88,11 @@ async def put_key(
     body: PutValueRequest,
     replicate: bool = Query(True),
 ) -> KeyValueResponse:
+    if store is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Store not initialized",
+        )
     store.put(key, body.value)
     if replicate:
         if replicator is None:
@@ -92,6 +106,11 @@ async def put_key(
 
 @app.get("/keys/{key}", response_model=KeyValueResponse, status_code=status.HTTP_200_OK)
 def get_key(key: str) -> KeyValueResponse:
+    if store is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Store not initialized",
+        )
     try:
         value = store.get(key)
     except KeyError:
@@ -105,6 +124,11 @@ def get_key(key: str) -> KeyValueResponse:
     status_code=status.HTTP_200_OK,
 )
 async def delete_key(key: str, replicate: bool = Query(True)) -> DeleteResponse:
+    if store is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Store not initialized",
+        )
     try:
         store.delete(key)
     except KeyError:
@@ -121,5 +145,10 @@ async def delete_key(key: str, replicate: bool = Query(True)) -> DeleteResponse:
 
 @app.get("/keys", response_model=KeysResponse, status_code=status.HTTP_200_OK)
 def list_keys() -> KeysResponse:
+    if store is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Store not initialized",
+        )
     return KeysResponse(items=store.get_all())
 
