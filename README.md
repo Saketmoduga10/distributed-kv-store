@@ -14,6 +14,8 @@ This project is a simple **distributed key-value store** written in Python. You 
 
 ## Architecture
 
+<img width="749" height="379" alt="Screenshot 2026-03-30 at 6 09 13 PM" src="https://github.com/user-attachments/assets/9208e981-eda2-4717-a7f5-a626e386438c" />
+
 Each node runs a **FastAPI** server exposing a small HTTP interface:
 - `PUT /keys/{key}` to write
 - `GET /keys/{key}` to read
